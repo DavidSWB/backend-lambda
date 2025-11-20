@@ -376,7 +376,24 @@ router.get("/test-email", async (req, res) => {
 dotenv.config();
 function setupApp() {
   const app2 = express__default();
-  app2.use(cors());
+  // Configurar CORS explícitamente desde variables de entorno.
+  // Permite definir orígenes permitidos en `ALLOWED_ORIGINS` como lista separada por comas.
+  const allowed = (process.env.ALLOWED_ORIGINS || "*").split(",").map(s => s.trim()).filter(Boolean);
+  const corsOptions = {
+    origin: allowed.length === 0 ? false : allowed.length === 1 && allowed[0] === "*" ? true : function(origin, callback) {
+      // Allow requests with no origin like CURL or server-to-server
+      if (!origin) return callback(null, true);
+      if (allowed.includes("*") || allowed.includes(origin)) return callback(null, true);
+      return callback(new Error("Origin not allowed"), false);
+    },
+    methods: ["GET","HEAD","PUT","PATCH","POST","DELETE","OPTIONS"],
+    allowedHeaders: ["Content-Type","Authorization","Accept","Origin","X-Requested-With"],
+    credentials: true,
+    maxAge: 86400
+  };
+  app2.use(cors(corsOptions));
+  // Preflight handler: ensure OPTIONS requests receive the CORS headers
+  app2.options("*", cors(corsOptions));
   app2.use(express__default.json());
   app2.use("/api/auth", router$7);
   app2.use("/api/clientes", router$6);
@@ -429,32 +446,52 @@ async function start() {
 if (process.env.RUN_SERVER !== "false") {
   start();
 }
-setupApp();
-const app = createServer();
-const port = process.env.PORT || 3e3;
-const __dirname = import.meta.dirname;
-const distPath = path.join(__dirname, "../spa");
-app.use(express.static(distPath));
-app.get("/*", (req, res) => {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/health")) {
-    return res.status(404).json({ error: "API endpoint not found" });
-  }
-  res.sendFile(path.join(distPath, "index.html"));
-});
-app.listen(port, () => {
-  console.log(`🚀 Fusion Starter server running on port ${port}`);
-  console.log(`📱 Frontend: http://localhost:${port}`);
-  console.log(`🔧 API: http://localhost:${port}/api`);
-});
-process.on("SIGTERM", () => {
-  console.log("🛑 Received SIGTERM, shutting down gracefully");
-  process.exit(0);
-});
-process.on("SIGINT", () => {
-  console.log("🛑 Received SIGINT, shutting down gracefully");
-  process.exit(0);
-});
+function setupServerRoutes(app) {
+  const __dirname = import.meta.dirname;
+  const distPath = path.join(__dirname, "../spa");
+  
+  // Servir archivos estáticos
+  app.use(express.static(distPath));
+  
+  // Ruta para la raíz
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+
+  // Fallback para rutas SPA (usar 404 handler en lugar de ruta comodín problemática)
+  app.use((req, res, next) => {
+    // No servir archivos estáticos para rutas no encontradas
+    if (req.path.startsWith("/api/") || req.path.startsWith("/health")) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
+// Solo ejecutar si es el modo local (no Lambda)
+if (process.env.RUN_SERVER !== "false") {
+  const app = createServer();
+  const port = process.env.PORT || 3000;
+  setupServerRoutes(app);
+  
+  app.listen(port, () => {
+    console.log(`🚀 Fusion Starter server running on port ${port}`);
+    console.log(`📱 Frontend: http://localhost:${port}`);
+    console.log(`🔧 API: http://localhost:${port}/api`);
+  });
+  
+  process.on("SIGTERM", () => {
+    console.log("🛑 Received SIGTERM, shutting down gracefully");
+    process.exit(0);
+  });
+  process.on("SIGINT", () => {
+    console.log("🛑 Received SIGINT, shutting down gracefully");
+    process.exit(0);
+  });
+}
+
 export {
-  createServer
+  createServer,
+  connectDB
 };
 //# sourceMappingURL=node-build.mjs.map
